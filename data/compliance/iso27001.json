@@ -1,0 +1,30 @@
+{
+  "A.9.2.3": {
+    "title": "Management of privileged access rights",
+    "domain": "A.9 Access Control"
+  },
+  "A.9.4.2": {
+    "title": "Secure log-on procedures",
+    "domain": "A.9 Access Control"
+  },
+  "A.9.4.3": {
+    "title": "Password management system",
+    "domain": "A.9 Access Control"
+  },
+  "A.12.6.1": {
+    "title": "Management of technical vulnerabilities",
+    "domain": "A.12 Operations Security"
+  },
+  "A.14.2.5": {
+    "title": "Secure system engineering principles",
+    "domain": "A.14 System Acquisition, Development and Maintenance"
+  },
+  "A.16.1.1": {
+    "title": "Responsibilities and procedures for information security incident management",
+    "domain": "A.16 Information Security Incident Management"
+  },
+  "A.18.2.3": {
+    "title": "Technical compliance review",
+    "domain": "A.18 Compliance"
+  }
+}

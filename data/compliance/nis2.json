@@ -1,0 +1,22 @@
+{
+  "Article 21(2)(e)": {
+    "title": "Security in network and information systems acquisition, development and maintenance, including vulnerability handling and disclosure",
+    "article": "21"
+  },
+  "Article 21(2)(i)": {
+    "title": "Human resources security, access control policies and asset management",
+    "article": "21"
+  },
+  "Article 21(2)(a)": {
+    "title": "Policies on risk analysis and information system security",
+    "article": "21"
+  },
+  "Article 21(2)(b)": {
+    "title": "Incident handling",
+    "article": "21"
+  },
+  "Article 21(2)(j)": {
+    "title": "Use of multi-factor authentication or continuous authentication solutions",
+    "article": "21"
+  }
+}

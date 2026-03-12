@@ -1,0 +1,77 @@
+{
+  "T1190": {
+    "name": "Exploit Public-Facing Application",
+    "tactic": "Initial Access",
+    "description": "Adversaries may attempt to exploit a weakness in an Internet-facing host or system."
+  },
+  "T1110.003": {
+    "name": "Password Spraying",
+    "tactic": "Credential Access",
+    "description": "Adversaries may use a single or small list of commonly used passwords against many different accounts."
+  },
+  "T1558.003": {
+    "name": "Kerberoasting",
+    "tactic": "Credential Access",
+    "description": "Adversaries may abuse a valid Kerberos ticket-granting ticket to obtain service tickets for cracking."
+  },
+  "T1558.004": {
+    "name": "AS-REP Roasting",
+    "tactic": "Credential Access",
+    "description": "Adversaries may reveal credentials by forcing accounts to authenticate with weaker encryption."
+  },
+  "T1003.006": {
+    "name": "DCSync",
+    "tactic": "Credential Access",
+    "description": "Adversaries may request credentials from a DC using the DS-Replication-Get-Changes-All right."
+  },
+  "T1550.002": {
+    "name": "Pass the Hash",
+    "tactic": "Lateral Movement",
+    "description": "Adversaries may use NTLM hash to authenticate without the actual cleartext password."
+  },
+  "T1134": {
+    "name": "Access Token Manipulation",
+    "tactic": "Privilege Escalation",
+    "description": "Adversaries may modify access tokens to operate under different users or system privilege levels."
+  },
+  "T1021.002": {
+    "name": "Remote Services: SMB/Windows Admin Shares",
+    "tactic": "Lateral Movement",
+    "description": "Adversaries may use SMB to interact with file shares, moving laterally by copying files."
+  },
+  "T1649": {
+    "name": "Steal or Forge Authentication Certificates",
+    "tactic": "Credential Access",
+    "description": "Adversaries may steal or forge certificates used for authentication to access resources."
+  },
+  "T1587.001": {
+    "name": "Develop Capabilities: Malware",
+    "tactic": "Resource Development",
+    "description": "Adversaries may develop malware and malware components to support operations."
+  },
+  "T1078": {
+    "name": "Valid Accounts",
+    "tactic": "Defense Evasion",
+    "description": "Adversaries may obtain and abuse credentials of existing accounts."
+  },
+  "T1046": {
+    "name": "Network Service Discovery",
+    "tactic": "Discovery",
+    "description": "Adversaries may attempt to get a listing of services running on remote hosts."
+  },
+  "T1018": {
+    "name": "Remote System Discovery",
+    "tactic": "Discovery",
+    "description": "Adversaries may attempt to get a listing of other systems by IP address, hostname, or other logical identifier."
+  },
+  "T1482": {
+    "name": "Domain Trust Discovery",
+    "tactic": "Discovery",
+    "description": "Adversaries may attempt to gather information on domain trust relationships."
+  },
+  "T1069.002": {
+    "name": "Domain Groups",
+    "tactic": "Discovery",
+    "description": "Adversaries may attempt to find domain-level groups and permission settings."
+  }
+}

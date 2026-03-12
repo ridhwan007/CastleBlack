@@ -1,0 +1,30 @@
+{
+  "164.308(a)(1)(ii)(A)": {
+    "title": "Risk Analysis — conduct an accurate and thorough assessment of potential risks",
+    "safeguard": "Administrative"
+  },
+  "164.308(a)(1)(ii)(B)": {
+    "title": "Risk Management — implement security measures to reduce risks to a reasonable level",
+    "safeguard": "Administrative"
+  },
+  "164.308(a)(5)(ii)(B)": {
+    "title": "Protection from Malicious Software — procedures for guarding against malicious software",
+    "safeguard": "Administrative"
+  },
+  "164.312(a)(2)(i)": {
+    "title": "Unique User Identification — assign a unique name/number for identifying and tracking user identity",
+    "safeguard": "Technical"
+  },
+  "164.312(d)": {
+    "title": "Person or Entity Authentication — implement procedures to verify that a person seeking access is the one claimed",
+    "safeguard": "Technical"
+  },
+  "164.312(e)(2)(ii)": {
+    "title": "Encryption and Decryption — implement a mechanism to encrypt and decrypt ePHI",
+    "safeguard": "Technical"
+  },
+  "164.312(b)": {
+    "title": "Audit Controls — implement hardware, software, and procedural mechanisms that record and examine activity",
+    "safeguard": "Technical"
+  }
+}

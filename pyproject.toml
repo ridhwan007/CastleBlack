@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "aiptt"
+version = "1.1.0"
+description = "Autonomous Internal Penetration Testing Tool — CLI Edition"
+requires-python = ">=3.12"
+readme = "README.md"
+license = { text = "CONFIDENTIAL" }
+dependencies = [
+  "typer[all]>=0.12",
+  "rich>=13",
+  "langgraph>=0.2",
+  "langchain-anthropic>=0.3",
+  "langchain-core>=0.3",
+  "anthropic>=0.40",
+  "neo4j>=5",
+  "sqlalchemy>=2",
+  "cryptography>=42",
+  "python-nmap>=0.7",
+  "scapy>=2.5",
+  "impacket>=0.12",
+  "ldap3>=2.9",
+  "docker>=7",
+  "reportlab>=4",
+  "jinja2>=3.1",
+  "keyring>=24",
+  "psutil>=5.9",
+  "jsonschema>=4",
+  "requests>=2.31",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8",
+  "pytest-cov>=5",
+  "pytest-mock>=3.14",
+]
+
+[project.scripts]
+aiptt = "aiptt.main:app"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["aiptt*"]
+
+[tool.setuptools.package-data]
+"aiptt" = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
