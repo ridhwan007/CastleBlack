@@ -37,6 +37,8 @@ class EngagementConfig:
     tags: list[str] = field(default_factory=list)
     no_ad: bool = False
     no_ai_planner: bool = False
+    # Nessus import mode — when set, live scanning is skipped entirely
+    nessus_file: Path | None = None
 
 
 class SessionState:
@@ -59,6 +61,9 @@ class SessionState:
         self.cycle: int                    = 0
         self._visited: dict[str, int]      = {}  # ip → visit count
         self._scoped_domains: set[str]     = set(config.domains)
+        # Nessus-mode fallback: observations populated from parsed file
+        # Used by OPAV OBSERVE phase when Neo4j KG is unavailable
+        self.nessus_observations: list[dict] = []
 
         self.knowledge_graph = None   # Set after graph init
         self._started_at     = datetime.now(timezone.utc)
@@ -114,6 +119,17 @@ class SessionState:
     def has_visited_twice(self, ip: str) -> bool:
         """Circular pivot detection (FR-AI-03 edge case)."""
         return self._visited.get(ip, 0) >= 2
+
+    def mark_host_exhausted(self, ip: str) -> None:
+        """Mark a host as fully exhausted so it is never targeted again."""
+        self._visited[ip] = 2
+
+    def get_host_observation(self, ip: str) -> dict | None:
+        """Return the Nessus observation dict for a host IP, or None."""
+        for obs in self.nessus_observations:
+            if obs.get("ip") == ip:
+                return obs
+        return None
 
     def update_cycle(self, cycle: int) -> None:
         self.cycle = cycle

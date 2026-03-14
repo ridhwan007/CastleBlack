@@ -143,6 +143,7 @@ class AIPlannerEngine:
         self.replanner  = replanner or ReplanEngine(audit)
         self.max_pivots = max_pivots
         self._state: PlannerState | None = None   # Persistent (FR-AI-02)
+        self._scan_context: dict = {}             # Injected by Nessus bootstrap
 
     # ------------------------------------------------------------------
     # Main entry point (called each OPAV PLAN phase)
@@ -199,20 +200,21 @@ class AIPlannerEngine:
 
         # ── Call Claude ────────────────────────────────────────────────
         try:
+            from langchain_core.messages import HumanMessage, SystemMessage
             response = self.llm.invoke([
-                {
-                    "role": "system",
-                    "content": SYSTEM_PROMPT.format(max_pivots=self.max_pivots),
-                },
-                {
-                    "role": "user",
-                    "content": context,
-                },
+                SystemMessage(content=SYSTEM_PROMPT.format(max_pivots=self.max_pivots)),
+                HumanMessage(content=context),
             ])
             reasoning = response.content
         except Exception as e:
+            import traceback
+            err_detail = traceback.format_exc()
             self.audit.log_event("AI_PLAN_LLM_ERROR", error=str(e),
                                   cycle=self._state.cycle)
+            # Surface to stderr so the operator sees the real failure cause
+            import sys
+            print(f"\n[AI_PLAN_LLM_ERROR] Claude API call failed: {e}\n{err_detail}",
+                  file=sys.stderr)
             return []
 
         # Post-action full reasoning log (FR-AI-05)
@@ -264,8 +266,20 @@ class AIPlannerEngine:
     # Context builder
     # ------------------------------------------------------------------
 
+    def inject_scan_context(self, scan_summary: dict) -> None:
+        """
+        Inject Nessus scan summary for richer AI planning context.
+        Called by NessusEngagementBootstrap before the first OPAV cycle.
+
+        The summary_dict() from NessusScanResult is passed here so Claude
+        gets the full vulnerability landscape even before OBSERVE phase runs.
+        """
+        self._scan_context = scan_summary
+
     def _build_context(self, state: PlannerState) -> str:
         """Serialise current state into a concise LLM-readable prompt."""
+        import json as _json
+
         vulns_summary = "\n".join(
             f"  - {o['ip']}: {len(o.get('vulnerabilities', []))} vulns, "
             f"max_cvss={max((v.get('cvss', 0) for v in o.get('vulnerabilities', [])), default=0):.1f}"
@@ -280,6 +294,33 @@ class AIPlannerEngine:
 
         failed_summary = self.replanner.build_failure_summary()
 
+        # Nessus context block — only present when bootstrapped from a file
+        nessus_block = ""
+        if self._scan_context:
+            top = self._scan_context.get("top_targets", [])[:10]
+            nessus_block = (
+                f"\n=== Nessus Scan Context ===\n"
+                f"Scan name: {self._scan_context.get('scan_name', 'N/A')}\n"
+                f"In-scope hosts: {self._scan_context.get('in_scope_hosts', 0)} | "
+                f"Critical vulns: {self._scan_context.get('critical_vulns', 0)} | "
+                f"Exploit-ready hosts: {self._scan_context.get('exploit_ready_hosts', 0)} | "
+                f"AD surface hosts: {self._scan_context.get('ad_surface_hosts', 0)}\n"
+                f"Top targets:\n"
+                + "\n".join(
+                    f"  [{i+1}] {t['ip']} ({t.get('hostname') or t.get('os') or 'Unknown'}) "
+                    f"CVSS={t.get('max_cvss', 0.0):.1f} "
+                    f"{'[EXPLOIT]' if t.get('exploit_available') else ''}"
+                    f"{'[AD]' if t.get('ad_surface') else ''}\n"
+                    + "\n".join(
+                        f"      CVE: {v['cve']} CVSS={v['cvss']} {v['severity']} "
+                        f"port={v['port']}/{v['service']} — {v['description'][:80]}"
+                        for v in t.get("top_vulns", [])
+                    )
+                    for i, t in enumerate(top)
+                )
+                + "\n"
+            )
+
         return (
             f"=== OPAV Cycle {state.cycle} ===\n"
             f"Pivot depth: {state.pivot_depth}/{self.max_pivots}\n"
@@ -288,6 +329,7 @@ class AIPlannerEngine:
             f"Unexhausted targets (ip: vuln_count, max_cvss):\n"
             f"{vulns_summary or '  (none remaining)'}\n\n"
             f"{failed_summary}"
+            f"{nessus_block}"
         )
 
     # ------------------------------------------------------------------

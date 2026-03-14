@@ -109,6 +109,224 @@ def purge(
     console.print(f"[green]Purged {deleted} expired artefact(s).[/green]")
 
 
+@app.command("findings")
+def findings(
+    engagement_id: str = typer.Option("", "--engagement-id", "-e",
+                                       help="Filter by engagement (default: latest)"),
+    limit: int = typer.Option(0, "--limit", "-n",
+                               help="Max rows (0 = all)"),
+):
+    """List all findings with artefact references."""
+    from aiptt.storage.db import init_db, get_session_factory
+    from aiptt.storage.models import Finding, Engagement as EngModel, AttackChainSnapshot
+    from rich.table import Table
+    import json as _json
+
+    init_db()
+    with get_session_factory()() as session:
+        if not engagement_id:
+            eng = session.query(EngModel).order_by(EngModel.created_at.desc()).first()
+            engagement_id = eng.id if eng else ""
+
+        q = (session.query(Finding)
+             .filter(Finding.engagement_id == engagement_id)
+             .order_by(Finding.id.desc()))
+        if limit > 0:
+            q = q.limit(limit)
+        rows = q.all()
+
+        # Pull CVE/plugin names from attack chain snapshots
+        snap_map: dict[str, str] = {}
+        for f in rows:
+            if f.attack_chain and f.attack_chain.task_json:
+                try:
+                    task_data = _json.loads(f.attack_chain.task_json)
+                    params = task_data.get("parameters", {})
+                    cve = params.get("cve_id") or params.get("cve") or ""
+                    snap_map[f.id] = cve
+                except Exception:
+                    pass
+
+    if not rows:
+        console.print(f"[yellow]No findings for engagement {engagement_id}[/yellow]")
+        return
+
+    t = Table(
+        title=f"[bold cyan]Findings — {engagement_id}[/bold cyan]  "
+              f"[dim]({len(rows)} total)[/dim]",
+        show_lines=True,
+    )
+    t.add_column("ID",          style="cyan",   no_wrap=True)
+    t.add_column("Module",      style="yellow", no_wrap=True)
+    t.add_column("CVE / Vuln",  style="green",  no_wrap=True)
+    t.add_column("Technique",   style="dim",    no_wrap=True)
+    t.add_column("Access",      no_wrap=True)
+    t.add_column("Gained",      no_wrap=True)
+    t.add_column("PoE Artefact", style="dim",   no_wrap=True)
+
+    for f in rows:
+        cve_str   = snap_map.get(f.id, "") or "—"
+        gained    = "[green]YES[/green]" if f.gained_access else "[dim]no[/dim]"
+        acc       = f.access_level or "none"
+        acc_col   = "green" if acc.lower() in ("root", "admin", "system",
+                                                "administrator") else "white"
+        t.add_row(
+            f.id,
+            f.module_id or "—",
+            cve_str,
+            f.technique or "—",
+            f"[{acc_col}]{acc}[/{acc_col}]",
+            gained,
+            f.poe_vault_ref or "—",
+        )
+    console.print(t)
+    console.print(
+        f"[dim]Use [cyan]aiptt admin show-artefact <PoE Ref>[/cyan] "
+        "to decrypt and view any artefact.[/dim]"
+    )
+
+
+@app.command("delete-findings")
+def delete_findings(
+    engagement_id: str = typer.Option("", "--engagement-id", "-e",
+                                       help="Engagement to clear (default: latest)"),
+    all_engagements: bool = typer.Option(False, "--all",
+                                          help="Delete findings for ALL engagements"),
+    keep_vault:      bool = typer.Option(False, "--keep-vault",
+                                          help="Delete DB rows but keep vault artefact files"),
+    confirm:         bool = typer.Option(False, "--yes", "-y"),
+):
+    """Delete all findings (and their vault artefacts) for an engagement."""
+    from aiptt.storage.db import init_db, get_session
+    from aiptt.storage.models import Finding, Engagement as EngModel
+
+    init_db()
+
+    with get_session() as session:
+        if all_engagements:
+            rows = session.query(Finding).all()
+            scope_label = "ALL engagements"
+        else:
+            if not engagement_id:
+                eng = session.query(EngModel).order_by(EngModel.created_at.desc()).first()
+                engagement_id = eng.id if eng else ""
+            rows = session.query(Finding).filter(
+                Finding.engagement_id == engagement_id
+            ).all()
+            scope_label = engagement_id
+
+    if not rows:
+        console.print(f"[yellow]No findings found for {scope_label}.[/yellow]")
+        return
+
+    vault_refs = [f.poe_vault_ref for f in rows if f.poe_vault_ref]
+    console.print(
+        f"[bold]Found {len(rows)} finding(s) for {scope_label}[/bold]  "
+        f"({len(vault_refs)} vault artefact(s))"
+    )
+
+    if not confirm:
+        typer.confirm(
+            f"Delete {len(rows)} finding(s)"
+            + (f" and {len(vault_refs)} vault artefact(s)" if not keep_vault else "")
+            + "?",
+            abort=True,
+        )
+
+    deleted_files = 0
+    failed_files  = 0
+
+    # ── Bulk delete vault files (no per-file DB session) ──────────────
+    if not keep_vault and vault_refs:
+        from aiptt.core.config import get_config as _get_cfg
+        vault_dir = Path(_get_cfg().encryption.vault_path).expanduser()
+        for ref in vault_refs:
+            try:
+                enc_file = vault_dir / f"{ref}.enc"
+                if enc_file.exists():
+                    enc_file.unlink()
+                deleted_files += 1
+            except Exception:
+                failed_files += 1
+
+    # ── Single-transaction bulk DB delete ─────────────────────────────
+    with get_session() as session:
+        from sqlalchemy import delete as _sa_delete
+        from aiptt.storage.models import AttackChainSnapshot, ArtefactRetentionLog
+
+        finding_ids = [f.id for f in rows]
+
+        # Delete child rows first (cascade isn't always reliable with bulk ops)
+        session.execute(
+            _sa_delete(AttackChainSnapshot).where(
+                AttackChainSnapshot.finding_id.in_(finding_ids)
+            )
+        )
+        if not keep_vault and vault_refs:
+            session.execute(
+                _sa_delete(ArtefactRetentionLog).where(
+                    ArtefactRetentionLog.vault_ref.in_(vault_refs)
+                )
+            )
+        session.execute(
+            _sa_delete(Finding).where(Finding.id.in_(finding_ids))
+        )
+
+    console.print(
+        f"[green]✓ Deleted {len(rows)} finding(s).[/green]"
+        + (f"  Vault files removed: {deleted_files}"
+           + (f"  (failed: {failed_files})" if failed_files else "")
+           if not keep_vault else "  (vault artefacts kept)")
+    )
+
+
+@app.command("show-artefact")
+def show_artefact(
+    vault_ref: str = typer.Argument(..., help="Vault reference from findings table"),
+    raw:        bool = typer.Option(False, "--raw", help="Print raw bytes as hex"),
+):
+    """Decrypt and display a PoE artefact from the vault."""
+    from aiptt.storage.vault import ArtifactVault
+    from aiptt.storage.db import init_db
+
+    init_db()
+    vault = ArtifactVault()
+
+    try:
+        data = vault.retrieve(vault_ref)
+    except FileNotFoundError as e:
+        console.print(f"[red]Not found:[/red] {e}")
+        raise typer.Exit(1)
+    except Exception as e:
+        console.print(f"[red]Decryption failed:[/red] {e}")
+        raise typer.Exit(1)
+
+    if raw:
+        console.print(data.hex())
+        return
+
+    # Try to decode as text
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        text = data.decode("latin-1", errors="replace")
+
+    # Try to pretty-print JSON
+    import json as _json
+    try:
+        parsed = _json.loads(text)
+        text   = _json.dumps(parsed, indent=2)
+    except Exception:
+        pass
+
+    console.print(Panel(
+        text,
+        title=f"[cyan]PoE Artefact[/cyan]  [dim]{vault_ref}[/dim]",
+        subtitle=f"[dim]{len(data)} bytes (decrypted)[/dim]",
+        expand=False,
+    ))
+
+
 @app.command("module-update")
 def module_update(
     cve_cache_dir: str = typer.Option("data/cve_cache", "--cve-cache-dir"),

@@ -104,6 +104,29 @@ class ArtifactVault:
         return aesgcm.decrypt(nonce, ct, finding_id.encode())
 
     # ------------------------------------------------------------------
+    # Delete
+    # ------------------------------------------------------------------
+
+    def delete(self, vault_ref: str) -> None:
+        """Remove an encrypted artefact file from the vault."""
+        path = self.vault_dir / f"{vault_ref}.enc"
+        if path.exists():
+            path.unlink()
+        # Remove from retention log
+        try:
+            from aiptt.storage.db import get_session
+            from aiptt.storage.models import ArtefactRetentionLog
+            with get_session() as session:
+                row = session.query(ArtefactRetentionLog).filter_by(
+                    vault_ref=vault_ref).first()
+                if row:
+                    session.delete(row)
+        except Exception:
+            pass
+        if self.audit:
+            self.audit.log_event("VAULT_DELETE", ref=vault_ref)
+
+    # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
 

@@ -32,6 +32,7 @@ class OPAVResult:
     outcome: str         # SUCCESS | FAILURE | SKIPPED | HALTED
     finding_id: str | None
     elapsed_seconds: float
+    skip_reason: str = ""   # Human-readable reason when outcome == SKIPPED
 
 
 class OPAVLoop:
@@ -72,6 +73,7 @@ class OPAVLoop:
         self.max_pivots = max_pivots
 
         self._killed               = False
+        self._replan_requested     = False   # set by request_replan() for interactive mode
         self._retry_counter: dict[str, int] = {}
 
         # Wire kill-switch UNIX signals
@@ -93,17 +95,29 @@ class OPAVLoop:
 
             # ── OBSERVE ──────────────────────────────────────────────
             self.audit.log_intent("OBSERVE_START", cycle=cycle)
-            observations = (
-                self.state.knowledge_graph.get_unexhausted_targets()
-                if self.state.knowledge_graph else []
-            )
+            if self.state.knowledge_graph:
+                observations = self.state.knowledge_graph.get_unexhausted_targets()
+            elif self.state.nessus_observations:
+                # Nessus-mode fallback: filter out already-visited targets
+                observations = [
+                    o for o in self.state.nessus_observations
+                    if not self.state.has_visited_twice(o["ip"])
+                ]
+            else:
+                observations = []
 
             if not observations:
                 self.bus.emit("zero_subtasks", cycle=cycle)
                 break
 
+            self.bus.emit("observe_complete", cycle=cycle,
+                          target_count=len(observations),
+                          targets=[o["ip"] for o in observations])
+
             # ── PLAN ─────────────────────────────────────────────────
             self.audit.log_intent("PLAN_START", cycle=cycle)
+            self.bus.emit("plan_start", cycle=cycle,
+                          target_count=len(observations))
             attack_queue = self.planner.score_and_queue(
                 observations=observations,
                 compromised=self.state.compromised_hosts,
@@ -115,7 +129,20 @@ class OPAVLoop:
                 # FR-AI-01: zero subtasks → alert and halt
                 self.audit.log_event("ZERO_SUBTASKS_ALERT", cycle=cycle)
                 self.bus.emit("zero_subtasks", cycle=cycle)
+                import sys
+                print(
+                    f"\n[OPAV] Cycle {cycle}: planner returned 0 tasks — "
+                    "check output above for AI_PLAN_LLM_ERROR details.",
+                    file=sys.stderr,
+                )
                 break
+
+            self.bus.emit("plan_complete", cycle=cycle,
+                          task_count=len(attack_queue),
+                          tasks=[{"id": t.id, "module": t.module_id,
+                                  "target": t.target, "technique": t.technique,
+                                  "priority": round(t.priority_score, 2)}
+                                 for t in attack_queue])
 
             # Pivot depth gate (FR-AI-03)
             if self.state.pivot_count >= self.max_pivots:
@@ -132,8 +159,18 @@ class OPAVLoop:
             for task in attack_queue:
                 if self._killed:
                     return
+                # Interactive mode: user picked a new vuln → abort remaining
+                # tasks in this queue so the outer loop re-plans for the new target.
+                if self._replan_requested:
+                    self._replan_requested = False
+                    self.audit.log_event("REPLAN_REQUESTED_QUEUE_ABORTED", cycle=cycle)
+                    break
 
                 start = time.time()
+                self.bus.emit("task_start", cycle=cycle, task_id=task.id,
+                              module=task.module_id, target=task.target,
+                              technique=task.technique,
+                              priority=round(task.priority_score, 2))
 
                 # Pre-task guardrail check (FR-AI-04 — EVERY subtask)
                 guardrail_result = self.guardrail.check(task)
@@ -147,6 +184,7 @@ class OPAVLoop:
                     yield OPAVResult(
                         cycle, "ACT", task.id, "SKIPPED", None,
                         time.time() - start,
+                        skip_reason=f"{guardrail_result.blocker}: {guardrail_result.reason}",
                     )
                     continue
 
@@ -166,10 +204,48 @@ class OPAVLoop:
                                           target=task.target)
                     continue
 
+                # Post-exploitation gate: skip post-ex tasks if no access yet.
+                # Claude may plan cred-harvest / privesc / AD tasks alongside the
+                # initial RCE — they are meaningless (and wasteful) if access was
+                # never gained.  Module-ID prefixes that imply post-exploitation:
+                _POST_EX_PREFIXES = (
+                    "POST-", "PRIVESC-", "CRED-", "AD-", "LATERAL-",
+                    "TOKEN-", "BLOODHOUND-",
+                )
+                _is_post_ex = any(
+                    task.module_id.upper().startswith(p)
+                    for p in _POST_EX_PREFIXES
+                )
+                if _is_post_ex and task.target not in self.state.compromised_hosts:
+                    self.audit.log_event(
+                        "POST_EX_GATE_SKIP",
+                        task=task.id,
+                        module=task.module_id,
+                        target=task.target,
+                        reason="target not yet compromised",
+                    )
+                    self.bus.emit(
+                        "post_ex_skipped",
+                        task_id=task.id,
+                        module=task.module_id,
+                        target=task.target,
+                    )
+                    yield OPAVResult(
+                        cycle, "ACT", task.id, "SKIPPED", None,
+                        time.time() - start,
+                        skip_reason=(
+                            f"post-ex gate: {task.module_id} requires prior "
+                            "access to target (none gained this cycle)"
+                        ),
+                    )
+                    continue
+
                 # Pre-action intent log (FR-AI-05: log BEFORE execution)
                 self.audit.log_intent("EXEC_START", task=task.id,
                                        module=task.module_id,
                                        target=task.target)
+                self.bus.emit("exec_start", cycle=cycle, task_id=task.id,
+                              module=task.module_id, target=task.target)
 
                 # Execute via AttackRegistry
                 result = self.registry.execute(task)
@@ -178,9 +254,15 @@ class OPAVLoop:
                 self.audit.log_event("EXEC_COMPLETE", task=task.id,
                                       outcome=result.outcome,
                                       elapsed=elapsed)
+                self.bus.emit("exec_complete", cycle=cycle, task_id=task.id,
+                              outcome=result.outcome, success=result.success,
+                              elapsed=round(elapsed, 1))
 
                 # ── VALIDATE ─────────────────────────────────────────
+                self.bus.emit("validate_start", cycle=cycle, task_id=task.id,
+                              success=result.success)
                 if result.success:
+                    self.bus.emit("poe_capture_start", task_id=task.id)
                     poe_result = self.poe.capture(task, result)
                     finding    = self.state.record_finding(task, result, poe_result)
 
@@ -192,6 +274,32 @@ class OPAVLoop:
                     if result.gained_access:
                         self.state.add_compromised_host(task.target)
                         self.state.increment_pivot_count()
+
+                        # Root/admin check — if we have high-priv and the
+                        # host is not AD-joined, lateral movement adds no
+                        # value → mark exhausted and notify operator.
+                        access_lvl = (result.access_level or "").lower()
+                        is_high_priv = access_lvl in (
+                            "root", "admin", "system",
+                            "administrator", "nt authority\\system",
+                            "nt authority/system",
+                        )
+                        if is_high_priv:
+                            host_obs = self.state.get_host_observation(task.target)
+                            ad_surface = host_obs.get("ad_surface", False) if host_obs else False
+                            if not ad_surface:
+                                # Non-AD host with root — no lateral movement needed
+                                self.state.mark_host_exhausted(task.target)
+                                self.bus.emit(
+                                    "root_gained_no_ad",
+                                    target=task.target,
+                                    access_level=result.access_level,
+                                )
+                                self.audit.log_event(
+                                    "ROOT_NO_AD_HOST_EXHAUSTED",
+                                    target=task.target,
+                                    access_level=result.access_level,
+                                )
 
                     # Store credential refs
                     for cred in result.credentials_captured:
@@ -230,6 +338,15 @@ class OPAVLoop:
     # ------------------------------------------------------------------
     # Kill switch
     # ------------------------------------------------------------------
+
+    def request_replan(self) -> None:
+        """
+        Signal the loop to abort the current task queue and re-plan.
+        Called by interactive mode when the operator selects a new target vuln.
+        The outer while-loop will re-enter OBSERVE→PLAN with the updated
+        state.nessus_observations on the very next iteration.
+        """
+        self._replan_requested = True
 
     def kill(self, reason: str = "manual") -> None:
         """Programmatic kill — used by admin kill command."""

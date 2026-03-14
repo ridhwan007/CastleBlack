@@ -11,16 +11,57 @@ Usage:
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
+
 import typer
 from rich.console import Console
 
-from aiptt.cli.engage  import app as engage_app
-from aiptt.cli.scan    import app as scan_app
-from aiptt.cli.attack  import app as attack_app
-from aiptt.cli.report  import app as report_app
-from aiptt.cli.verify  import app as verify_app
-from aiptt.cli.session import app as session_app
-from aiptt.cli.admin   import app as admin_app
+
+def _load_dotenv() -> None:
+    """
+    Load .env into os.environ at startup.
+    Searches: ./. env → ~/.config/aiptt/.env
+    Uses python-dotenv if installed, otherwise parses manually.
+    Does NOT override variables already set in the shell environment.
+    """
+    candidates = [
+        Path.cwd() / ".env",
+        Path.home() / ".config" / "aiptt" / ".env",
+    ]
+    env_file = next((p for p in candidates if p.exists()), None)
+    if env_file is None:
+        return
+
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(env_file, override=False)
+        return
+    except ImportError:
+        pass
+
+    # Built-in fallback — no extra deps needed
+    for line in env_file.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key   = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+_load_dotenv()
+
+from aiptt.cli.engage   import app as engage_app
+from aiptt.cli.scan     import app as scan_app
+from aiptt.cli.attack   import app as attack_app
+from aiptt.cli.report   import app as report_app
+from aiptt.cli.verify   import app as verify_app
+from aiptt.cli.session  import app as session_app
+from aiptt.cli.admin    import app as admin_app
+from aiptt.cli.validate import app as validate_app
 
 app = typer.Typer(
     name="aiptt",
@@ -33,13 +74,14 @@ app = typer.Typer(
     rich_markup_mode="rich",
 )
 
-app.add_typer(engage_app,  name="engage",  help="Manage engagement lifecycle")
-app.add_typer(scan_app,    name="scan",    help="Discovery and scanning")
-app.add_typer(attack_app,  name="attack",  help="Attack execution (OPAV loop)")
-app.add_typer(report_app,  name="report",  help="Report generation")
-app.add_typer(verify_app,  name="verify",  help="Fix-verify (retest findings)")
-app.add_typer(session_app, name="session", help="Session management")
-app.add_typer(admin_app,   name="admin",   help="Administrative operations")
+app.add_typer(engage_app,   name="engage",   help="Manage engagement lifecycle")
+app.add_typer(scan_app,     name="scan",     help="Discovery and scanning")
+app.add_typer(attack_app,   name="attack",   help="Attack execution (OPAV loop)")
+app.add_typer(report_app,   name="report",   help="Report generation")
+app.add_typer(verify_app,   name="verify",   help="Fix-verify (retest findings)")
+app.add_typer(session_app,  name="session",  help="Session management")
+app.add_typer(admin_app,    name="admin",    help="Administrative operations")
+app.add_typer(validate_app, name="validate", help="Nessus exploit validation (PoC generation + report)")
 
 console = Console()
 

@@ -38,7 +38,8 @@ class RoEValidator:
 
     SUPPORTED_FORMATS = [".pdf", ".docx", ".txt", ".md"]
 
-    def verify_signature(self, roe_path: Path) -> RoEValidationResult:
+    def verify_signature(self, roe_path: str | Path) -> RoEValidationResult:
+        roe_path = Path(roe_path)
         if not roe_path.exists():
             return RoEValidationResult(False, "", f"RoE file not found: {roe_path}")
         if not roe_path.is_file():

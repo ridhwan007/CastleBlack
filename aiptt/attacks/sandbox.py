@@ -39,7 +39,8 @@ class SandboxExecutor:
 
         try:
             import docker
-            self.client = docker.DockerClient(base_url=self.socket)
+            self.client = docker.DockerClient(base_url=self.socket,
+                                              timeout=self.timeout)
         except Exception as e:
             self.client = None
             if audit:
@@ -69,7 +70,6 @@ class SandboxExecutor:
                 network_mode="bridge",
                 remove=True,
                 detach=False,
-                timeout=self.timeout,
                 mem_limit="512m",
                 cpu_period=100000,
                 cpu_quota=50000,        # 50% CPU cap
@@ -129,7 +129,6 @@ class SandboxExecutor:
                 network_mode="bridge",
                 remove=True,
                 detach=False,
-                timeout=90,   # Generated exploits have a shorter timeout
                 mem_limit="256m",
                 cpu_quota=25000,
                 volumes={tmp_path: {"bind": "/exploit/exploit.py", "mode": "ro"}},
