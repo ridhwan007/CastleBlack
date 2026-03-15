@@ -9,10 +9,16 @@ CPU: 50% cap. Memory: 512 MB cap. Timeout: 120 seconds.
 from __future__ import annotations
 
 import json
-import time
-import tempfile
 import os
+import tempfile
+import time
+import uuid
 from pathlib import Path
+
+# When AIPTT runs inside Docker and spawns sibling containers via DooD,
+# tempfiles must live at a path the host Docker daemon can resolve.
+# Set AIPTT_HOST_WORKDIR to the absolute host path of the /output bind mount.
+_HOST_WORKDIR = os.environ.get("AIPTT_HOST_WORKDIR", "").strip()
 
 from aiptt.attacks.base import AbstractAttackModule, AttackResult
 from aiptt.core.config import get_config
@@ -115,23 +121,37 @@ class SandboxExecutor:
             raise RuntimeError("Docker client not available")
 
         start = time.time()
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".py", delete=False
-        ) as tf:
-            tf.write(code)
-            tmp_path = tf.name
+
+        # DooD mode: write to the host-mounted output volume so Docker can
+        # bind-mount the file from the host filesystem into the sandbox.
+        # Native mode: tempfile path == host path, so no translation needed.
+        if _HOST_WORKDIR:
+            sandbox_tmp = Path("/output/sandbox_tmp")
+            sandbox_tmp.mkdir(parents=True, exist_ok=True)
+            fname = f"exploit_{uuid.uuid4().hex[:12]}.py"
+            container_tmp = sandbox_tmp / fname
+            container_tmp.write_text(code, encoding="utf-8")
+            host_tmp = str(Path(_HOST_WORKDIR) / "sandbox_tmp" / fname)
+            tmp_path = container_tmp
+        else:
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".py", delete=False, encoding="utf-8"
+            ) as tf:
+                tf.write(code)
+                tmp_path = Path(tf.name)
+            host_tmp = str(tmp_path)
 
         try:
             import docker
             container_output = self.client.containers.run(
                 self.image,
-                command=f"python /exploit/exploit.py",
+                command="python /exploit/exploit.py",
                 network_mode="bridge",
                 remove=True,
                 detach=False,
                 mem_limit="256m",
                 cpu_quota=25000,
-                volumes={tmp_path: {"bind": "/exploit/exploit.py", "mode": "ro"}},
+                volumes={host_tmp: {"bind": "/exploit/exploit.py", "mode": "ro"}},
                 environment={"AIPTT_TARGET": task.target},
             )
             output = container_output.decode("utf-8", errors="replace")
@@ -140,7 +160,10 @@ class SandboxExecutor:
             return result
 
         finally:
-            os.unlink(tmp_path)
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
 
     # ------------------------------------------------------------------
     # Helpers

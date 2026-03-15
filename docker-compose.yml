@@ -1,0 +1,138 @@
+# =============================================================================
+# CastleBlack — Docker Compose Stack
+# =============================================================================
+#
+# Profiles:
+#   (default)       castleblack only — SQLite, no graph DB
+#   --profile graph adds Neo4j for attack path knowledge graph
+#   --profile db    adds PostgreSQL for production-grade storage
+#
+# Quick start:
+#   cp .env.example .env && vim .env        # fill API key + encryption keys
+#   docker compose build
+#   docker compose run --rm castleblack validate run /input/scan.nessus --execute
+#
+# For live network scanning (raw socket access):
+#   docker compose run --rm castleblack scan discover --cidr 10.0.0.0/24
+#   (network_mode: host is set below for full raw-socket nmap support)
+#
+# Mount a .nessus file:
+#   docker compose run --rm \
+#     -v /path/to/scan.nessus:/input/scan.nessus:ro \
+#     castleblack validate run /input/scan.nessus --execute
+# =============================================================================
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # castleblack — main AIPTT container
+  # ---------------------------------------------------------------------------
+  castleblack:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        INCLUDE_MSF: "${INCLUDE_MSF:-false}"
+    image: castleblack:latest
+    container_name: castleblack
+
+    env_file: .env
+
+    environment:
+      # Absolute host path of the pentest_output bind mount.
+      # Required for the DooD sandbox to bind-mount exploit scripts
+      # from a path the host Docker daemon can resolve.
+      # Set this to the absolute path of your pentest_output directory.
+      AIPTT_HOST_WORKDIR: "${AIPTT_HOST_WORKDIR:-}"
+
+      # Override SQLite / Neo4j / Postgres connection strings if needed
+      # (config.toml inside the container takes precedence for most settings)
+
+    volumes:
+      # ── Artefact outputs (reports, PoEs, PoCs) ───────────────────────────
+      - ./pentest_output:/output
+
+      # ── Persistent state (SQLite DB, vault, audit log) ───────────────────
+      - ./engagements:/data
+
+      # ── Read-only application data (CVE cache, compliance mappings) ──────
+      - ./data:/app/data:ro
+
+      # ── Attack module manifests (hot-reloadable) ─────────────────────────
+      - ./modules:/app/modules:ro
+
+      # ── Docker-out-of-Docker socket (for sandbox PoC execution) ──────────
+      - /var/run/docker.sock:/var/run/docker.sock
+
+    # Raw socket capabilities for nmap host discovery and scapy packet crafting
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+
+    # Host networking gives nmap/scapy direct access to the target network.
+    # Required for real engagements. Comment out for lab/testing only.
+    network_mode: host
+
+    # Keep stdin open for interactive CLI use
+    stdin_open: true
+    tty: true
+
+    restart: "no"
+
+  # ---------------------------------------------------------------------------
+  # sandbox — PoC execution sandbox image builder
+  # ---------------------------------------------------------------------------
+  sandbox-builder:
+    build:
+      context: .
+      dockerfile: docker/sandbox.Dockerfile
+    image: castleblack-sandbox:latest
+    profiles: [build]
+    command: echo "Sandbox image built."
+
+  # ---------------------------------------------------------------------------
+  # neo4j — attack path knowledge graph (optional)
+  # Profile: --profile graph
+  # ---------------------------------------------------------------------------
+  neo4j:
+    image: neo4j:5
+    container_name: castleblack-neo4j
+    profiles: [graph]
+    environment:
+      NEO4J_AUTH: "neo4j/${NEO4J_PASSWORD:-castleblack}"
+      NEO4J_server_memory_heap_initial__size: "512m"
+      NEO4J_server_memory_heap_max__size: "1g"
+    volumes:
+      - neo4j_data:/data
+    ports:
+      # Exposed on host so castleblack (network_mode: host) reaches localhost:7687
+      - "7474:7474"
+      - "7687:7687"
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # postgres — production database (optional)
+  # Profile: --profile db
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: castleblack-postgres
+    profiles: [db]
+    environment:
+      POSTGRES_DB: aiptt
+      POSTGRES_USER: aiptt
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-castleblack}"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      # Exposed on host so castleblack (network_mode: host) reaches localhost:5432
+      - "5432:5432"
+    restart: unless-stopped
+
+# =============================================================================
+# Named volumes for persistent service data
+# (pentest_output and engagements use host bind mounts defined above)
+# =============================================================================
+volumes:
+  neo4j_data:
+  postgres_data:
