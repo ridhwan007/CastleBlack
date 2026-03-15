@@ -12,12 +12,20 @@ Only activated when the user passes --execute to `aiptt validate run`.
 from __future__ import annotations
 
 import py_compile
+import re
 import shutil
 import subprocess
 import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+
+
+def _poe_slug(plugin_name: str, max_len: int = 60) -> str:
+    """Filesystem-safe slug from a vulnerability title."""
+    s = re.sub(r"[^\w\s\-]", "", plugin_name).strip()
+    s = re.sub(r"[\s_]+", "_", s)
+    return s[:max_len].rstrip("_")
 
 # ---------------------------------------------------------------------------
 # Data models
@@ -178,10 +186,9 @@ class PoCExecutor:
             ai_interp = f"Heuristic outcome: {outcome}. Return code: {rc}."
 
         # Build PoE artefact content
-        cves = ", ".join(finding.cves) or finding.plugin_id
-        poe_stem = result.poc_filename.replace(".py", "").replace(".sh", "").replace(".txt", "")
-        poe_filename = f"poe_{poe_stem}.txt"
-        poe_path = poe_dir / poe_filename
+        cves         = ", ".join(finding.cves) or finding.plugin_id
+        poe_filename = f"poe_{_poe_slug(finding.plugin_name)}.txt"
+        poe_path     = poe_dir / poe_filename
 
         poe_content = _build_poe_artefact(
             plugin_name=finding.plugin_name,
@@ -353,7 +360,7 @@ class PoCExecutor:
 
         msf_bin = shutil.which("msfconsole")
         if not msf_bin:
-            poe_path = poe_dir / f"poe_{stem}.txt"
+            poe_path = poe_dir / f"poe_{_poe_slug(finding.plugin_name)}.txt"
             note = "msfconsole not found in PATH — resource script written, run manually."
             poe_path.write_text(
                 _build_poe_artefact(
@@ -392,7 +399,7 @@ class PoCExecutor:
         else:
             ai_interp = f"Metasploit outcome: {outcome}. Return code: {rc}."
 
-        poe_path = poe_dir / f"poe_{stem}.txt"
+        poe_path = poe_dir / f"poe_{_poe_slug(finding.plugin_name)}.txt"
         poe_path.write_text(
             _build_poe_artefact(
                 plugin_name=finding.plugin_name,

@@ -426,6 +426,103 @@ Respond with JSON only, no markdown fences.
             return []
 
     # ------------------------------------------------------------------
+    # Error-driven PoC fix (auto-retry loop)
+    # ------------------------------------------------------------------
+
+    def fix_poc_for_error(
+        self,
+        finding: "RawFinding",
+        original_code: str,
+        error_output: str,
+        attempt: int = 1,
+    ) -> tuple[str, str, str]:
+        """
+        Analyse a PoC execution error and return a corrected script.
+        Returns (poc_code, poc_filename, poc_language).
+        Returns ("", "", "") when the error is not fixable.
+        """
+        cves     = ", ".join(finding.cves) if finding.cves else finding.plugin_id
+        first_cv = finding.cves[0].replace("-", "_") if finding.cves else f"PLUGIN_{finding.plugin_id}"
+
+        prompt = f"""\
+A PoC exploit script failed during execution (attempt {attempt}).
+Analyse the error and return a corrected version that avoids the same problem.
+
+**Finding:**   {finding.plugin_name}
+**CVE(s):**    {cves}
+**Target:**    {finding.host_ip}:{finding.port} ({finding.svc_name}/{finding.protocol})
+
+**Original PoC code:**
+```
+{original_code[:2000]}
+```
+
+**Error output (stderr):**
+```
+{error_output[:800]}
+```
+
+FIXING GUIDELINES — apply whichever is relevant:
+
+ModuleNotFoundError / ImportError:
+  Rewrite the script to use ONLY these packages (guaranteed on Kali):
+  stdlib (socket, ssl, struct, hashlib, hmac, base64, telnetlib, ftplib, http.client, subprocess),
+  requests, paramiko, impacket, pycryptodome (Crypto.*), pysnmp, ldap3.
+  For example, replace `import des` with a pure-Python DES via `from Crypto.Cipher import DES`.
+  NEVER use pip install inside the script — just use available packages.
+
+SyntaxError / NameError:
+  Fix invalid placeholder usage. NEVER use <HOST> or <PORT> as variable names.
+  CORRECT Python: TARGET_HOST = "<HOST>"   TARGET_PORT = <PORT>
+  WRONG Python:   <HOST> = "<HOST>"   (becomes SyntaxError after substitution)
+
+ConnectionRefused / ConnectionError:
+  The port or protocol may be wrong. Try the correct transport for the service.
+
+AttributeError / TypeError:
+  Fix the API usage — check the correct method signatures.
+
+Only set "fixable" to false if the error proves the host is genuinely not running
+the vulnerable service (e.g. "Connection refused" after multiple port attempts),
+or the protocol is fundamentally wrong with no alternative approach.
+Default to fixable: true and provide corrected code.
+
+CRITICAL SYNTAX RULE:
+  NEVER use <HOST> or <PORT> as variable names (left side of assignment).
+  CORRECT Python:   TARGET_HOST = "<HOST>"   TARGET_PORT = <PORT>
+  CORRECT Bash:     TARGET_HOST="<HOST>"   TARGET_PORT=<PORT>
+  WRONG (both):     <HOST>=... or <PORT>=...
+
+Respond with a JSON object (no markdown fences):
+{{
+  "fixable":   true,
+  "diagnosis": "<1-2 sentences — what caused the error and how you fixed it>",
+  "language":  "<python | bash>",
+  "filename":  "<poc_{finding.plugin_id}_{first_cv}_fix{attempt}.py or .sh>",
+  "code":      "<full corrected script as a string>"
+}}
+"""
+        try:
+            from langchain_core.messages import HumanMessage, SystemMessage
+            response = self.llm.invoke([
+                SystemMessage(content=_SYSTEM_PROMPT),
+                HumanMessage(content=prompt),
+            ])
+            raw  = response.content if hasattr(response, "content") else str(response)
+            data = self._parse_response(raw)
+            if data and data.get("code", "").strip():
+                # Accept the fix as long as there's actual code, regardless of fixable flag
+                fixable = data.get("fixable", True)
+                if fixable is False or fixable == "false":
+                    return "", "", ""
+                lang  = data.get("language", "python")
+                fname = data.get("filename", f"poc_{finding.plugin_id}_{first_cv}_fix{attempt}.py")
+                return data["code"], fname, lang
+        except Exception:
+            pass
+        return "", "", ""
+
+    # ------------------------------------------------------------------
     # Manual PoC generation (fallback after MSF failure)
     # ------------------------------------------------------------------
 
