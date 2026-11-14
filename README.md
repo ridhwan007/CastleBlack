@@ -776,4 +776,4 @@ Redistribution, modification, or use outside of explicitly authorised penetratio
 
 ---
 
-*AIPTT v1.1.0 — Powered by [Claude](https://anthropic.com) (`claude-sonnet-4-6`)*
+*AIPTT v1.1.0 
