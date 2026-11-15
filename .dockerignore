@@ -1,0 +1,49 @@
+# =============================================================================
+# CastleBlack — Docker build context exclusions
+# =============================================================================
+
+# Secrets — never baked into the image
+.env
+*.pem
+*.key
+*.p12
+
+# Engagement outputs — these live on the host, not in the image
+pentest_output/
+engagements/
+*.nessus
+
+# Python build artefacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+dist/
+build/
+
+# Dev / IDE
+.git/
+.gitignore
+.claude/
+.vscode/
+*.swp
+*.swo
+
+# Test artefacts
+.pytest_cache/
+htmlcov/
+.coverage
+
+# Documentation source (not needed at runtime)
+BRD/
+"MD files"/
+*.md
+!README.md
+
+# Temp files
+*.tmp
+*.log
+samr_probe.txt
+badlock_enum.txt
+test.pdf

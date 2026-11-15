@@ -1,0 +1,30 @@
+[module]
+id              = "AD-KERB-001"
+name            = "Kerberoasting"
+version         = "2.1.0"
+mitre_technique = "T1558.003"
+cvss_base       = 7.5
+destructive     = false
+requires_auth   = true
+requires_domain = true
+sandboxable     = true
+phase           = "CREDENTIAL_ACCESS"
+tags            = ["active_directory", "kerberos", "privilege_escalation"]
+
+[parameters]
+dc_ip        = { type = "string", required = true }
+domain       = { type = "string", required = true }
+username     = { type = "string", required = true }
+password     = { type = "string", required = false }
+lm_hash      = { type = "string", required = false }
+nt_hash      = { type = "string", required = false }
+
+[safety]
+max_requests_per_second = 5
+causes_lockout          = false
+modifies_target         = false
+leaves_artifacts        = false
+
+[poe]
+artefact_type   = "file"
+validates_via   = "hash_crack_attempt"

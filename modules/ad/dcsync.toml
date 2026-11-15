@@ -1,0 +1,30 @@
+[module]
+id              = "AD-DCSYNC-001"
+name            = "DCSync"
+version         = "1.0.0"
+mitre_technique = "T1003.006"
+cvss_base       = 9.0
+destructive     = false
+requires_auth   = true
+requires_domain = true
+sandboxable     = true
+phase           = "CREDENTIAL_ACCESS"
+tags            = ["active_directory", "dcsync", "ntlm_hashes"]
+
+[parameters]
+dc_ip                  = { type = "string", required = true }
+domain                 = { type = "string", required = true }
+username               = { type = "string", required = true }
+nt_hash                = { type = "string", required = true }
+production_auth_token  = { type = "string", required = false }
+
+[safety]
+max_requests_per_second = 1
+causes_lockout          = false
+modifies_target         = false
+leaves_artifacts        = false
+production_hours_gate   = true
+
+[poe]
+artefact_type = "credential"
+validates_via = "ntlm_hash_dump_count"

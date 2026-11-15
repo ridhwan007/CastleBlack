@@ -1,0 +1,6 @@
+{
+  "last_updated": null,
+  "schema_version": "1.0",
+  "description": "CVE cache manifest. Populate by running: aiptt admin module-update",
+  "entries": []
+}

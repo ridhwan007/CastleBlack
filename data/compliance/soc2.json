@@ -1,0 +1,26 @@
+{
+  "CC6.1": {
+    "title": "Logical and physical access controls to meet the entity's commitments and system requirements",
+    "category": "CC6 Logical and Physical Access Controls"
+  },
+  "CC6.3": {
+    "title": "Role-based access control to prevent unauthorised access to information assets",
+    "category": "CC6 Logical and Physical Access Controls"
+  },
+  "CC7.1": {
+    "title": "Vulnerability management — detection and monitoring of system vulnerabilities",
+    "category": "CC7 System Operations"
+  },
+  "CC7.2": {
+    "title": "Monitor system components for anomalies that indicate malicious acts",
+    "category": "CC7 System Operations"
+  },
+  "CC8.1": {
+    "title": "Change management controls to prevent unauthorised changes",
+    "category": "CC8 Change Management"
+  },
+  "CC9.1": {
+    "title": "Risk mitigation activities — identify, select, and develop risk mitigation activities",
+    "category": "CC9 Risk Mitigation"
+  }
+}

@@ -1,0 +1,33 @@
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+.venv/
+venv/
+dist/
+build/
+
+# Engagement data / output (potentially sensitive)
+engagements/
+pentest_output/
+
+# Nessus scan files (may contain sensitive target data)
+*.nessus
+
+# Test artefacts
+test.pdf
+badlock_enum.txt
+samr_probe.txt
+
+# Claude local settings
+.claude/settings.local.json
+*.pyc
+.DS_Store
+reports/
+*.db

@@ -1,0 +1,34 @@
+{
+  "6.3.3": {
+    "title": "All system components are protected from known vulnerabilities by installing applicable security patches/updates",
+    "requirement": "6.3.3"
+  },
+  "6.4.1": {
+    "title": "Public-facing web applications are protected against attacks",
+    "requirement": "6.4.1"
+  },
+  "7.2.1": {
+    "title": "Access control systems are in place covering all system components",
+    "requirement": "7.2.1"
+  },
+  "7.2.2": {
+    "title": "Access to system components and data is appropriately defined and assigned",
+    "requirement": "7.2.2"
+  },
+  "8.2.1": {
+    "title": "All users are assigned a unique ID before allowing them to access system components",
+    "requirement": "8.2.1"
+  },
+  "8.3.2": {
+    "title": "Strong cryptography is used to safeguard all non-console administrative access",
+    "requirement": "8.3.2"
+  },
+  "8.3.6": {
+    "title": "If passwords/passphrases are used as authentication factors, they must meet minimum length of at least 12 characters",
+    "requirement": "8.3.6"
+  },
+  "8.3.9": {
+    "title": "If passwords/passphrases are used as authentication factors, they are changed at least once every 90 days",
+    "requirement": "8.3.9"
+  }
+}

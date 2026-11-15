@@ -1,0 +1,170 @@
+"""
+Technical Reporter.
+
+Generates full technical finding detail including reproduction guides.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+
+@dataclass
+class TechnicalReport:
+    engagement_id: str
+    generated_at:  str
+    sections:      list[str]     # Ordered markdown sections
+    markdown:      str           # Full concatenated report
+
+
+class TechnicalReporter:
+    """
+    Builds a detailed technical report for security engineers.
+    Each finding gets a dedicated section with description, PoE references,
+    reproduction steps, and remediation guidance.
+    """
+
+    def generate(
+        self,
+        findings: list[dict],
+        engagement_id: str,
+        engagement_name: str = "Penetration Test",
+        repro_guides: dict[str, str] | None = None,
+    ) -> TechnicalReport:
+        """
+        Args:
+            findings: list of Finding.to_dict() results
+            repro_guides: {finding_id: markdown_guide} optional
+        """
+        repro_guides = repro_guides or {}
+        sections     = []
+
+        # Header
+        sections.append(self._header(engagement_id, engagement_name, findings))
+
+        # One section per finding, sorted by severity
+        order   = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"]
+        sorted_findings = sorted(
+            findings,
+            key=lambda f: (
+                order.index(f.get("severity", "INFO"))
+                if f.get("severity", "INFO") in order else 99,
+                -(f.get("cvss_score") or 0),
+            ),
+        )
+
+        for finding in sorted_findings:
+            sections.append(self._finding_section(
+                finding,
+                repro_guide=repro_guides.get(finding.get("id", ""), ""),
+            ))
+
+        # Appendix
+        sections.append(self._appendix())
+
+        markdown = "\n\n---\n\n".join(sections)
+
+        return TechnicalReport(
+            engagement_id=engagement_id,
+            generated_at=datetime.now(timezone.utc).isoformat(),
+            sections=sections,
+            markdown=markdown,
+        )
+
+    def save(self, report: TechnicalReport, output_dir: str | Path) -> Path:
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        path = output_dir / f"{report.engagement_id}_technical_report.md"
+        path.write_text(report.markdown, encoding="utf-8")
+        return path
+
+    # ------------------------------------------------------------------
+    # Section builders
+    # ------------------------------------------------------------------
+
+    def _header(self, engagement_id: str, name: str, findings: list[dict]) -> str:
+        from collections import Counter
+        by_sev = Counter(f.get("severity", "INFO") for f in findings)
+        rows = "\n".join(
+            f"| {s} | {by_sev.get(s, 0)} |"
+            for s in ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"]
+        )
+        return f"""# Technical Penetration Test Report
+
+**Engagement:** {name}
+**ID:** `{engagement_id}`
+**Generated:** {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}
+**Total Findings:** {len(findings)}
+
+## Findings Summary
+
+| Severity | Count |
+|----------|-------|
+{rows}
+"""
+
+    def _finding_section(self, finding: dict, repro_guide: str = "") -> str:
+        fid     = finding.get("id", "UNKNOWN")
+        title   = finding.get("title", "Untitled Finding")
+        sev     = finding.get("severity", "INFO")
+        cvss    = finding.get("cvss_score", 0.0)
+        tech    = finding.get("mitre_technique", "")
+        target  = finding.get("target_host", "")
+        status  = finding.get("status", "OPEN")
+        classif = finding.get("classification", "UNCONFIRMED")
+        desc    = finding.get("description", "No description available.")
+        remediation = finding.get("remediation_advice", "No remediation guidance available.")
+
+        section = f"""## {fid} — {title}
+
+| Field | Value |
+|-------|-------|
+| Severity | **{sev}** |
+| CVSS Score | {cvss} |
+| MITRE Technique | `{tech}` |
+| Target | `{target}` |
+| Classification | {classif} |
+| Status | {status} |
+
+### Description
+
+{desc}
+
+### Remediation
+
+{remediation}
+"""
+        if repro_guide:
+            section += f"\n### Reproduction Guide\n\n{repro_guide}\n"
+
+        return section
+
+    @staticmethod
+    def _appendix() -> str:
+        return """## Appendix
+
+### Classification Definitions
+
+| Classification | Meaning |
+|---------------|---------|
+| CONFIRMED | Vulnerability exploited with captured proof-of-exploit artefact |
+| UNCONFIRMED | Attack appeared to succeed but PoE capture failed |
+| THEORETICAL | Vulnerability identified via scanning but not exploited |
+
+### Severity Ratings (CVSS v3.1)
+
+| Rating | CVSS Range |
+|--------|-----------|
+| CRITICAL | 9.0 – 10.0 |
+| HIGH | 7.0 – 8.9 |
+| MEDIUM | 4.0 – 6.9 |
+| LOW | 0.1 – 3.9 |
+| INFO | 0.0 |
+
+---
+*This report was generated by AIPTT — Autonomous Internal Penetration Testing Tool.*
+*Contents are confidential and intended solely for the authorised recipient.*
+"""
